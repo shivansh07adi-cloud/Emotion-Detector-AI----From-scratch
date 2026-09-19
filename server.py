@@ -27,6 +27,15 @@ def _reject(wants_json, message, status, **extra):
     return message
 
 
+def _limit_reached(status):
+    '''Message for a refused request, and whether upgrading would help.'''
+    if status['tier'] == 'trial':
+        return (f"You have used all {status['trial_limit']} free analyses. "
+                "Thanks for trying the demo!"), False
+    return ("You have used all your free analyses for today. "
+            "Upgrade to Pro for unlimited use, or come back tomorrow."), True
+
+
 @app.route("/emotionDetector", methods=["GET", "POST"])
 def emotion_analyzer():
     '''Retrieve the provided text string from the user, then pass the text
@@ -51,9 +60,8 @@ def emotion_analyzer():
 
     allowed, status = monetization.consume_analysis()
     if not allowed:
-        message = ("You have used all your free analyses for today. "
-                   "Upgrade to Pro for unlimited use, or come back tomorrow.")
-        return _reject(wants_json, message, 402, upgrade=True)
+        message, upgrade = _limit_reached(status)
+        return _reject(wants_json, message, 402, upgrade=upgrade)
 
     emotion_result = emotion_detector(text_to_analyse)
     dominant_emotion = emotion_result.pop('dominant_emotion')

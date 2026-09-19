@@ -7,8 +7,7 @@ plain NumPy). The learned weights live in ``model.json`` next to this file, and
 prediction below uses only the Python standard library, so the web app stays
 tiny and quick to deploy.
 
-The returned dictionary keeps the shape the Watson NLP emotion endpoint used:
-one score per emotion plus a ``dominant_emotion``.
+The result is a dictionary with one score per emotion plus a ``dominant_emotion``.
 """
 import json
 import logging

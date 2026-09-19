@@ -179,7 +179,8 @@ class MonetizationTests(unittest.TestCase):
 
 
 class DemoModeTests(unittest.TestCase):
-    """On Vercel there is no persistent disk, so quotas and payments switch off."""
+    """On Vercel there is no persistent disk: payments are off and a small
+    cookie-counted trial (5 analyses by default) applies instead."""
 
     def setUp(self):
         self.env = mock.patch.dict(os.environ, {
@@ -191,21 +192,65 @@ class DemoModeTests(unittest.TestCase):
         })
         self.env.start()
         os.environ.pop('MONETIZATION_ENABLED', None)
+        os.environ.pop('TRIAL_LIMIT', None)
         import server
-        server.app.config['TESTING'] = True
-        self.client = server.app.test_client()
+        self.app = server.app
+        self.app.config['TESTING'] = True
+        self.client = self.app.test_client()
 
     def tearDown(self):
         self.env.stop()
 
-    def test_no_limits_and_no_database(self):
-        for _ in range(25):
-            response = self.client.post('/emotionDetector?format=json',
-                                        json={'textToAnalyze': 'I am so happy'})
+    def analyze(self, text='I am so happy', client=None):
+        return (client or self.client).post('/emotionDetector?format=json',
+                                            json={'textToAnalyze': text})
+
+    def test_five_free_analyses_then_blocked_without_a_database(self):
+        for used in range(1, 6):
+            response = self.analyze()
             self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get_json()['status']['remaining'], 5 - used)
+        blocked = self.analyze()
+        self.assertEqual(blocked.status_code, 402)
+        self.assertIn('5 free analyses', blocked.get_json()['error'])
+        self.assertFalse(blocked.get_json()['upgrade'])
         status = self.client.get('/api/status').get_json()
-        self.assertEqual(status['tier'], 'demo')
+        self.assertEqual((status['tier'], status['remaining'], status['trial_limit']),
+                         ('trial', 0, 5))
         self.assertFalse(status['payments_enabled'])
+
+    def test_a_new_browser_gets_its_own_trial(self):
+        for _ in range(5):
+            self.analyze()
+        self.assertEqual(self.analyze().status_code, 402)
+        self.assertEqual(self.analyze(client=self.app.test_client()).status_code, 200)
+
+    def test_invalid_text_does_not_use_the_trial(self):
+        self.analyze('')
+        self.analyze('   ')
+        self.assertEqual(self.client.get('/api/status').get_json()['remaining'], 5)
+
+    def test_original_text_response_also_counts(self):
+        for _ in range(5):
+            self.client.get('/emotionDetector?textToAnalyze=i feel happy')
+        body = self.client.get('/emotionDetector?textToAnalyze=i feel happy').get_data(as_text=True)
+        self.assertIn('Thanks for trying the demo', body)
+
+    def test_limit_is_configurable_and_zero_means_unlimited(self):
+        with mock.patch.dict(os.environ, {'TRIAL_LIMIT': '2'}):
+            client = self.app.test_client()
+            self.assertEqual([self.analyze(client=client).status_code for _ in range(3)],
+                             [200, 200, 402])
+        with mock.patch.dict(os.environ, {'TRIAL_LIMIT': '0'}):
+            client = self.app.test_client()
+            self.assertTrue(all(self.analyze(client=client).status_code == 200 for _ in range(12)))
+            self.assertEqual(client.get('/api/status').get_json()['tier'], 'demo')
+
+    def test_a_garbled_cookie_is_treated_as_unused(self):
+        self.client.set_cookie('emo_trial', 'not-a-number')
+        self.assertEqual(self.analyze().status_code, 200)
+        self.client.set_cookie('emo_trial', '-7')
+        self.assertEqual(self.client.get('/api/status').get_json()['remaining'], 5)
 
     def test_payment_routes_are_off(self):
         self.assertEqual(self.client.post('/api/create-order').status_code, 503)
