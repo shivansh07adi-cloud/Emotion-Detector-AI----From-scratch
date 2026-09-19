@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NLP - Emotion Detection</title>
+    <meta name="description" content="Paste any text and see which emotion it expresses: sadness, joy, love, anger, fear or surprise.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=DM+Sans:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <script src="{{ url_for('static', filename='mywebscript.js') }}" defer></script>
+    <style>
+        :root {
+            --ink: #172033;
+            --muted: #5b6577;
+            --line: #dde1e8;
+            --page: #f4f5f7;
+            --panel: #ffffff;
+            --sadness: #3a78d0;
+            --joy: #d99a10;
+            --love: #d2497f;
+            --anger: #cc433b;
+            --fear: #7657c2;
+            --surprise: #1f9c8c;
+        }
+        body {
+            background: var(--page);
+            color: var(--ink);
+            font-family: "DM Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.55;
+        }
+        .page { max-width: 680px; margin: 0 auto; padding: 48px 20px 72px; }
+        .center-heading {
+            font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+            font-weight: 700;
+            font-size: 2.1rem;
+            letter-spacing: -0.02em;
+            margin: 0 0 6px;
+        }
+        .lede { color: var(--muted); margin: 0 0 28px; }
+        .form-label { font-weight: 600; font-size: 1rem; margin-bottom: 8px; }
+        .composer {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 18px;
+        }
+        #textToAnalyze {
+            min-height: 132px;
+            resize: vertical;
+            border-color: var(--line);
+            font-size: 1.05rem;
+        }
+        #textToAnalyze:focus-visible, .btn:focus-visible, .chip:focus-visible,
+        #license-input:focus-visible {
+            outline: 3px solid rgba(58, 120, 208, 0.45);
+            outline-offset: 1px;
+            box-shadow: none;
+        }
+        .examples { margin: 10px 0 0; font-size: 0.9rem; color: var(--muted); }
+        .chip {
+            background: none;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            color: var(--ink);
+            font-size: 0.85rem;
+            padding: 2px 11px;
+            margin: 4px 6px 0 0;
+        }
+        .chip:hover { background: var(--page); }
+        .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 16px; }
+        .btn-run {
+            background: var(--ink);
+            border-color: var(--ink);
+            color: #fff;
+            font-weight: 600;
+            padding: 9px 22px;
+        }
+        .btn-run:hover:not(:disabled) { background: #0d1524; color: #fff; }
+        .btn-run:disabled { opacity: 0.65; }
+        .meta { color: var(--muted); font-size: 0.9rem; margin-left: auto; text-align: right; }
+        .meta.warn { color: var(--anger); font-weight: 600; }
+
+        #system_response { margin-top: 36px; min-height: 24px; }
+        .result-title { font-size: 1rem; font-weight: 600; margin: 0 0 4px; }
+        .verdict {
+            font-family: "Bricolage Grotesque", "DM Sans", sans-serif;
+            font-weight: 700;
+            font-size: 3.2rem;
+            letter-spacing: -0.03em;
+            line-height: 1.05;
+            margin: 0 0 4px;
+        }
+        .verdict::first-letter { text-transform: uppercase; }
+        .verdict-note { color: var(--muted); margin: 0 0 22px; }
+        .bars { list-style: none; margin: 0; padding: 0; }
+        .bars li { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+        .bar-name { width: 5.4rem; text-transform: capitalize; }
+        .bar-track { flex: 1; height: 12px; background: #e6e9ef; border-radius: 6px; overflow: hidden; }
+        .bar-fill { display: block; height: 100%; width: 0; border-radius: 6px; transition: width 0.5s ease; }        .bar-value { width: 3rem; text-align: right; font-variant-numeric: tabular-nums; }
+        .bars li.is-top .bar-name, .bars li.is-top .bar-value { font-weight: 700; }
+        .alert { border-radius: 10px; margin: 0; }
+        .model-note { color: var(--muted); font-size: 0.9rem; margin: 22px 0 0; }
+
+        .upgrade, .pro-note { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--line); }
+        .upgrade h2, .pro-note h2 { font-size: 1.15rem; font-weight: 700; margin: 0 0 6px; }
+        .upgrade p, .pro-note p { color: var(--muted); margin: 0 0 14px; }
+        .btn-buy { background: var(--sadness); border-color: var(--sadness); color: #fff; font-weight: 600; padding: 9px 22px; }
+        .btn-buy:hover:not(:disabled) { background: #2d64b0; color: #fff; }
+        .link-button { background: none; border: 0; padding: 0; color: var(--sadness); text-decoration: underline; cursor: pointer; }
+        #license-form { margin-top: 14px; }
+        .key-box { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: inline-block; color: var(--ink); user-select: all; }
+        .note-msg { margin-top: 10px; font-size: 0.95rem; }
+        .hidden { display: none !important; }
+
+        @media (max-width: 520px) {
+            .page { padding-top: 32px; }
+            .center-heading { font-size: 1.7rem; }
+            .verdict { font-size: 2.4rem; }
+            .meta { margin-left: 0; text-align: left; width: 100%; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .bar-fill { transition: none; }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <h1 class="center-heading">NLP - Emotion Detection</h1>
+        <p class="lede">Paste a message, review or note. A model trained from scratch scores it for sadness, joy, love, anger, fear and surprise. It works best on first-person sentences about how you feel.</p>
+
+        <div class="composer">
+            <div class="mb-3">
+                <label class="form-label" for="textToAnalyze">Please enter the text to be analyzed</label>
+                <textarea class="form-control" id="textToAnalyze" rows="4" placeholder="For example: i feel so happy with how the trip turned out"></textarea>
+                <div class="examples">
+                    Try an example:
+                    <button type="button" class="chip" data-example="i feel so thrilled and grateful that everything worked out">Joyful</button>
+                    <button type="button" class="chip" data-example="i feel furious that they cancelled my order again">Angry</button>
+                    <button type="button" class="chip" data-example="i feel terrified about the results tomorrow">Afraid</button>
+                    <button type="button" class="chip" data-example="i feel so lonely since i moved here">Lonely</button>
+                    <button type="button" class="chip" data-example="i feel so tender and caring toward my little sister">Affectionate</button>
+                    <button type="button" class="chip" data-example="i feel stunned and amazed by what just happened">Amazed</button>
+                </div>
+            </div>
+            <div class="actions">
+                <button onclick="RunSentimentAnalysis()" id="run-btn" class="btn btn-secondary btn-run">Run Sentiment Analysis</button>
+                <span id="char-count" class="meta" aria-live="off"></span>
+            </div>
+            <div id="usage" class="meta" style="margin:10px 0 0; text-align:left;"></div>
+        </div>
+
+        <section aria-live="polite">
+            <div id="system_response"></div>
+        </section>
+        <p id="model-note" class="model-note hidden"></p>
+
+        <section id="upgrade" class="upgrade hidden">
+            <h2>Go Pro</h2>
+            <p id="upgrade-copy"></p>
+            <button type="button" id="buy-btn" class="btn btn-buy">Get Pro</button>
+            <p class="note-msg" id="upgrade-msg" role="status"></p>
+            <p style="margin:0;">Already paid? <button type="button" class="link-button" id="license-toggle">Enter your license key</button></p>
+            <div id="license-form" class="hidden">
+                <div class="input-group">
+                    <input type="text" id="license-input" class="form-control" placeholder="EMO-XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" aria-label="License key">
+                    <div class="input-group-append">
+                        <button type="button" id="license-btn" class="btn btn-secondary">Unlock Pro</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="pro-note" class="pro-note hidden">
+            <h2>Pro is active</h2>
+            <p id="pro-copy"></p>
+            <div id="license-reveal" class="hidden">
+                <p>Keep this license key. You need it to unlock Pro on another device or after clearing your browser data.</p>
+                <span class="key-box" id="license-key-text"></span>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
