@@ -96,6 +96,13 @@ const renderStatus = (status) => {
         usage.textContent = "";
         upgrade.classList.add("hidden");
         proNote.classList.add("hidden");
+    } else if (status.tier === "trial") {
+        usage.textContent = status.remaining > 0
+            ? status.remaining + " of " + status.trial_limit + " free analyses left"
+            : "Your " + status.trial_limit + " free analyses are used up";
+        usage.classList.toggle("warn", status.remaining === 0);
+        upgrade.classList.add("hidden");
+        proNote.classList.add("hidden");
     } else if (status.tier === "pro") {
         usage.textContent = "Pro: unlimited analyses";
         upgrade.classList.add("hidden");

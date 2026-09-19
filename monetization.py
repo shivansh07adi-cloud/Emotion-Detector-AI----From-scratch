@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import requests
-from flask import Blueprint, current_app, jsonify, request, session
+from flask import Blueprint, current_app, g, jsonify, request, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 billing = Blueprint('billing', __name__)
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 RAZORPAY_ORDERS_URL = 'https://api.razorpay.com/v1/orders'
 KEY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+TRIAL_COOKIE = 'emo_trial'
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS usage (
@@ -78,12 +79,43 @@ def enabled():
     '''Whether quotas and payments are on.
 
     They are off by default on Vercel, which has no persistent disk for the
-    database. Set MONETIZATION_ENABLED=1 or 0 to override either way.
+    database. The app then runs a small cookie-counted trial instead
+    (see TRIAL_LIMIT). Set MONETIZATION_ENABLED=1 or 0 to override either way.
     '''
     flag = os.environ.get('MONETIZATION_ENABLED')
     if flag is not None:
         return flag.strip() == '1'
     return not os.environ.get('VERCEL')
+
+
+def trial_limit():
+    '''Free analyses per browser when quotas are off (demo mode). 0 = unlimited.
+
+    Set TRIAL_LIMIT to change it. It is counted in a cookie, so it needs no
+    database, but a visitor can reset it by clearing cookies.
+    '''
+    try:
+        return max(0, int(os.environ.get('TRIAL_LIMIT', '5').strip()))
+    except ValueError:
+        return 5
+
+
+def _trial_used():
+    '''How many trial analyses this browser has used (a bad cookie counts as 0).'''
+    if hasattr(g, 'trial_used'):
+        return g.trial_used
+    try:
+        return max(0, min(int(request.cookies.get(TRIAL_COOKIE, '0')), 1_000_000))
+    except ValueError:
+        return 0
+
+
+def _save_trial_cookie(response):
+    '''Write the trial counter back to the browser when it changed.'''
+    if hasattr(g, 'trial_used'):
+        response.set_cookie(TRIAL_COOKIE, str(g.trial_used), max_age=365 * 86400,
+                            httponly=True, samesite='Lax', secure=request.is_secure)
+    return response
 
 
 def _razorpay_keys():
@@ -177,7 +209,12 @@ def get_status():
     '''Describe the caller's plan: tier, remaining quota, limits.'''
     conf = settings()
     if not enabled():
-        return {'tier': 'demo', 'daily_limit': None, 'remaining': None,
+        limit = trial_limit()
+        if limit == 0:
+            return {'tier': 'demo', 'daily_limit': None, 'remaining': None,
+                    'max_chars': conf['pro_max_chars'], 'expires_at': None}
+        return {'tier': 'trial', 'daily_limit': None, 'trial_limit': limit,
+                'remaining': max(0, limit - _trial_used()),
                 'max_chars': conf['pro_max_chars'], 'expires_at': None}
     with _connect() as conn:
         lic = _active_license(conn)
@@ -197,6 +234,12 @@ def get_status():
 def consume_analysis():
     '''Spend one analysis. Returns (allowed, status); Pro is never metered.'''
     if not enabled():
+        limit = trial_limit()
+        if limit:
+            used = _trial_used()
+            if used >= limit:
+                return False, get_status()
+            g.trial_used = used + 1
         return True, get_status()
     conf = settings()
     with _connect() as conn:
@@ -239,6 +282,7 @@ def init_app(app):
     )
     if os.environ.get('TRUST_PROXY') == '1':
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    app.after_request(_save_trial_cookie)
     app.register_blueprint(billing)
 
 
