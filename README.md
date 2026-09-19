@@ -13,7 +13,7 @@ Type how you feel, and the model tells you whether it reads as sadness, joy, lov
 
 **Built by [Shivansh Kumar](https://shivanshonline.in)**
 
-> **Live demo:** _add your Vercel link here_
+> **Live demo:**(https://emotion-detector-ai-from-scratch.vercel.app/)
 
 </div>
 
@@ -204,8 +204,8 @@ flowchart TD
     C -- "no" --> E503["503: Model not trained yet"]
     C -- "yes" --> D{"Longer than the plan allows?"}
     D -- "yes" --> E413["413: Text too long"]
-    D -- "no" --> F{"Free quota or trial left?"}
-    F -- "no" --> E402["402: Limit reached"]
+    D -- "no" --> F{"Free quota left?"}
+    F -- "no" --> E402["402: Upgrade prompt"]
     F -- "yes" --> G["Predict the emotion"]
     G --> H["200: scores as JSON"]
 ```
@@ -399,7 +399,7 @@ Response `200` (values shown are an example):
     "sadness": 0.91, "joy": 0.03, "love": 0.0,
     "anger": 0.05, "fear": 0.01, "surprise": 0.0
   },
-  "status": { "tier": "trial", "trial_limit": 5, "remaining": 4, "max_chars": 5000, "expires_at": null }
+  "status": { "tier": "demo", "daily_limit": null, "remaining": null, "max_chars": 5000, "expires_at": null }
 }
 ```
 
@@ -409,8 +409,8 @@ The text can also come from the query string (`?textToAnalyze=...`) or a form. W
 | --- | --- |
 | `200` | Success |
 | `400` | Empty or invalid text |
-| `402` | Free quota or free trial used up |
-| `413` | Text longer than the limit (500 characters on the free plan, 5,000 on Pro and on Vercel) |
+| `402` | Free quota used up (quotas on only) |
+| `413` | Text longer than the limit (500 characters on the free plan, 5,000 on Pro and in demo mode) |
 | `503` | `model.json` is missing or unreadable |
 
 ### `GET /api/model`
@@ -445,7 +445,7 @@ The page uses this to show the accuracy note under the result.
 │  │ └────────────────────────────────────┘ │  │
 │  │ Try an example: (Joyful) (Angry) ...   │  │  one-click examples
 │  │ [ Run Sentiment Analysis ]     48/500  │  │  character counter
-│  │ 4 of 5 free analyses left              │  │  quota or trial counter
+│  │ 9 of 10 free analyses left today       │  │  quota (hidden in demo mode)
 │  └────────────────────────────────────────┘  │
 │                                              │
 │  Result of Emotion Detection                 │
@@ -487,14 +487,14 @@ The page uses this to show the accuracy note under the result.
 
 ## 10. Monetization architecture
 
-An optional layer. It is **off automatically on Vercel** (there is no persistent disk for its database) and **on** when you run on a normal server. While it is off, the app runs a small **free trial** instead: 5 analyses per browser, counted in a cookie.
+An optional layer. It is **off automatically on Vercel** (there is no persistent disk for its database) and **on** when you run on a normal server.
 
 ```mermaid
 flowchart TD
     A["App starts"] --> B{"MONETIZATION_ENABLED set?"}
     B -- "yes" --> C{"Value is 1?"}
     C -- "yes" --> ON["Quotas and payments ON"]
-    C -- "no" --> OFF["Demo mode: free trial, no payments"]
+    C -- "no" --> OFF["Demo mode: no limits, no payments"]
     B -- "no" --> D{"Running on Vercel?"}
     D -- "yes" --> OFF
     D -- "no" --> ON
@@ -510,8 +510,6 @@ flowchart TD
 | Reset | Local midnight (IST by default) | n/a |
 
 All numbers are settings (see [Configuration](#13-configuration)).
-
-**Free trial on Vercel (demo mode).** With no database, each browser gets 5 free analyses (`TRIAL_LIMIT`), counted in a cookie. Once they are used up, the API answers `402` and the page shows "You have used all 5 free analyses. Thanks for trying the demo!". Payments stay off. Set `TRIAL_LIMIT=0` for unlimited use. The counter lives in the visitor's browser, so clearing cookies resets it. A limit that cannot be bypassed needs a server-side store such as Supabase or Redis (see the roadmap).
 
 ### Payment flow (Razorpay Checkout)
 
@@ -622,7 +620,7 @@ flowchart LR
 1. Train the model and commit `EmotionDetection/model.json` (about 1 MB). Do **not** commit `data/`.
 2. Push the project to GitHub.
 3. In Vercel, click Add New, then Project, import the repository, and click Deploy. Vercel finds `server.py` and `requirements.txt` on its own, so no configuration file is needed.
-4. The app runs in demo mode: each browser gets 5 free analyses (change it with the `TRIAL_LIMIT` environment variable), and payments are off.
+4. The app runs in demo mode: no limits, no payments.
 
 **Running with payments** needs a server with a persistent disk (for the SQLite file) and a production server, for example:
 
@@ -640,7 +638,6 @@ Copy `.env.example` to `.env` and set what you need. Every setting has a default
 | --- | --- | --- |
 | `MODEL_PATH` | `EmotionDetection/model.json` | Use a model file from somewhere else |
 | `MONETIZATION_ENABLED` | on, except on Vercel | Force quotas and payments on (`1`) or off (`0`) |
-| `TRIAL_LIMIT` | `5` | Free analyses per browser when quotas are off (demo mode). `0` means unlimited |
 | `SECRET_KEY` | random per start | Signs the visitor cookie. Set it in production |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | none | Enable payments. Use test keys first |
 | `FREE_DAILY_LIMIT` | `10` | Free analyses per day |
@@ -674,7 +671,7 @@ The tests train a tiny model on made-up sentences, so they run in about a second
 | API | Response shapes, error codes, model info endpoint, original text response |
 | Quota | Free limit and upgrade prompt, invalid requests do not use quota, clearing cookies does not reset the limit for good |
 | Payments | Purchase unlocks Pro, bad signatures and unknown orders are rejected, replays are safe, keys work on another browser, expiry, Razorpay failures |
-| Demo mode | The 5-analysis trial works with no database, is per browser, ignores invalid text and garbled cookies, and can be changed or switched off. Payment routes are off |
+| Demo mode | No limits and no database access on Vercel, payment routes switched off |
 
 ---
 
@@ -689,7 +686,7 @@ The tests train a tiny model on made-up sentences, so they run in about a second
 | **One shared feature extractor** | Training and serving cannot disagree about how text becomes numbers, and a test enforces it. |
 | **Validation set for tuning, test set once** | Keeps the reported accuracy honest. |
 | **"Neutral" instead of forcing an answer** | A classifier always picks something. A confidence threshold makes the app admit when it does not know. |
-| **Monetization switches off on Vercel** | Vercel has no persistent disk, so the database cannot live there. A cookie-counted trial gives the demo a limit without any extra service. |
+| **Monetization switches off on Vercel** | Vercel has no persistent disk, so the database cannot live there. The demo stays free and simple. |
 | **SQLite for the business layer** | No extra service to run, and enough for licenses and counters. |
 
 ---
@@ -702,7 +699,7 @@ The tests train a tiny model on made-up sentences, so they run in about a second
 - There is no "neutral" or "disgust" class in the data, so those cannot be predicted directly.
 - Surprise and love have the fewest examples and the lowest scores.
 - English only. Bag-of-words features cannot capture long-range meaning or word order beyond word pairs.
-- On Vercel, payments are off and the 5-analysis trial is counted in a cookie, so a visitor can reset it by clearing cookies.
+- On Vercel the free-quota and payment features are off.
 
 **Roadmap**
 
@@ -710,7 +707,6 @@ The tests train a tiny model on made-up sentences, so they run in about a second
 - Add a "why this result" view that shows the words that pushed the score the most.
 - Train on a larger, more varied dataset, and add a disgust class.
 - Replace the bag-of-words features with small learned word embeddings, still from scratch.
-- Move the trial counter to a server-side store (Supabase or Redis) so it cannot be reset by clearing cookies.
 - Razorpay webhook so a payment is never lost if the browser closes early.
 
 ---
