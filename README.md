@@ -13,7 +13,7 @@ Type how you feel, and the model tells you whether it reads as sadness, joy, lov
 
 **Built by [Shivansh Kumar](https://shivanshonline.in)**
 
-> **Live demo:** _add your Vercel link here_
+> **Live demo:**(https://emotion-detector-ai-from-scratch.vercel.app/)
 
 </div>
 
